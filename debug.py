@@ -10,18 +10,20 @@ except ImportError as e:
     exit()
 
 
-def test_gallery_search(gallery_id: str, keyword: str):
+def test_gallery_search(gallery_id: str, gallery_type: str, keyword: str, search_option: int = 0, end_page: int = 2):
     """
     특정 갤러리와 키워드로 스크레이퍼 함수를 호출하고 결과를 출력합니다.
     """
-    print(f"\n--- [테스트 시작] 갤러리: {gallery_id}, 키워드: '{keyword}' ---")
+    print(f"\n--- [테스트 시작] 갤러리: {gallery_id}, 갤러리 타입: {gallery_type}, 키워드: '{keyword}', 검색 옵션: {search_option}, {end_page}페이지 까지 ---")
     
     # 2. 원하는 함수와 인수를 설정하여 호출합니다.
     results_df = get_regular_post_data(
         gallery_id=gallery_id, 
-        search_keyword=keyword, 
+        gallery_type=gallery_type,
+        search_keyword=keyword,
+        search_option=search_option,
         start_page=1, 
-        end_page=1  # 테스트를 위해 1페이지만 호출
+        end_page=end_page
     )
     
     # 3. 결과 확인
@@ -42,16 +44,19 @@ def test_gallery_search(gallery_id: str, keyword: str):
 def run_all_tests():
     """모든 테스트 시나리오를 순차적으로 실행합니다."""
     print("====================================")
-    print("       스크레이퍼 디버그 모드 실행")
+    print("     스크레이퍼 디버그 모드 실행")
     print("====================================")
     
-    # 시나리오 1: 마이너 갤러리 + 키워드 검색
-    test_gallery_search(gallery_id='warship', keyword='리코')
+    # 시나리오 1: 특정 갤러리 + 키워드 검색
+    gall = input("갤러리 ID 입력(ex| warship): ")
+    gall_type = input("갤러리 type 입력(major, minor, mini): ")
+    keyword = input("검색할 키워드 입력: ")
+    search_option = int(input("검색 옵션 선택(0: 제목,내용 / 1: 제목 / 2: 내용): "))
+    until = int(input("1페이지부터 몇 페이지까지 검색할지: "))
 
-    # 시나리오 2: 정식 갤러리 + 키워드 검색
-    #test_gallery_search(gallery_id='baseball_new11', keyword='삼성')
-    
-    # 시나리오 3: 일반 검색 (키워드 없음)
+    test_gallery_search(gallery_id=gall, gallery_type=gall_type, keyword=keyword, search_option=search_option, end_page=until)
+
+    # 시나리오 2: 통합 검색 (키워드 없음)
     #test_gallery_search(gallery_id='warship', keyword='')
 
 if __name__ == '__main__':
