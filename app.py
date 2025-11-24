@@ -30,7 +30,7 @@ with st.sidebar:
         index=0
     )
     st.info(f"현재 선택된 커뮤니티: **{community_type}**")
-    st.info("DCInside의 경우 사이트 약관 위반의 소지가 있으므로 신중히 사용함을 권고합니다.")
+    st.info("DCInside의 경우 사이트 약관 위반의 소지가 있으므로 신중히 사용함을 권고합니다. **README.md 참조**")
 
 @st.cache_resource
 def get_gemini_model():
@@ -49,7 +49,28 @@ def get_gemini_model():
         st.stop()
         
     genai.configure(api_key=YOUR_API_KEY)
-    return genai.GenerativeModel(YOUR_MODEL)
+    
+    # 안전 설정: 모든 카테고리에 대해 차단 없음(BLOCK_NONE)으로 설정하여 오탐지 방지
+    safety_settings = [
+        {
+            "category": "HARM_CATEGORY_HARASSMENT",
+            "threshold": "BLOCK_NONE"
+        },
+        {
+            "category": "HARM_CATEGORY_HATE_SPEECH",
+            "threshold": "BLOCK_NONE"
+        },
+        {
+            "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+            "threshold": "BLOCK_NONE"
+        },
+        {
+            "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+            "threshold": "BLOCK_NONE"
+        },
+    ]
+    
+    return genai.GenerativeModel(YOUR_MODEL, safety_settings=safety_settings)
 
 # --------------------------------------------------------------------------
 # 2. LLM 로직 (Controller & Analyst)
@@ -57,7 +78,7 @@ def get_gemini_model():
 
 def query_controller_DC(user_input):
     """
-    DC Inside용 의도 파악 컨트롤러
+    DCInside용 의도 파악 컨트롤러
     """
     model = get_gemini_model()
     
@@ -72,7 +93,7 @@ def query_controller_DC(user_input):
     [JSON 출력 형식]
     {
         "mode": "search" | "clarify" | "chat",
-        "search_keyword": "디시인사이드에서 검색할 핵심 주제어 (검색 결과가 최대한 잘 나올 수 있는 단순 키워드",
+        "search_keyword": "디시인사이드에서 검색할 핵심 주제어 (검색 결과가 최대한 잘 나올 수 있는 단순 키워드. 결과가 잘 나올 것 같다면 은어도 적극 사용. 예) 아르바이트 -> 알바, 네이버 카페 -> 네캎)",
         "gallery_name": "키워드를 검색할 갤러리의 갤러리명 (예: 메이플스토리, 리그오브레전드, 치지직). 모르거나 통합검색이 적합할 경우 null",
         "gallery_id": "키워드를 검색할 갤러리의 갤러리 ID (예: 'maplestory_new', 'leagueoflegends6', 'chzzk'). 모르거나 통합검색이 적합할 경우 null",
         "gallery_type": "gallery_id값에 해당하는 갤러리의 종류로 다음 셋 중 하나 ('major' | 'minor' | 'mini'). 명확하지 않을 때는 'major', 통합검색이 적합할 경우 null",
@@ -86,7 +107,13 @@ def query_controller_DC(user_input):
             f"{system_instruction}\n\nUser Input: {user_input}",
             generation_config={"response_mime_type": "application/json"}
         )
-        return json.loads(response.text)
+        # 안전하게 텍스트 추출 시도
+        if response.parts:
+            return json.loads(response.text)
+        else:
+            # 안전 필터 등으로 인해 텍스트가 없는 경우
+            return {"mode": "chat", "reply_message": "죄송합니다. 요청하신 내용이 안전 정책에 의해 차단되었거나 처리할 수 없습니다."}
+            
     except Exception as e:
         return {"mode": "chat", "reply_message": "죄송합니다. 의도를 파악하는 중 오류가 발생했습니다."}
 
@@ -107,7 +134,7 @@ def query_controller_Arca(user_input):
     [JSON 출력 형식]
     {
         "mode": "search" | "clarify" | "chat",
-        "search_keyword": "아카라이브에서 검색할 핵심 주제어",
+        "search_keyword": "아카라이브에서 검색할 핵심 주제어 (검색 결과가 최대한 잘 나올 수 있는 단순 키워드. 결과가 잘 나올 것 같다면 은어도 적극 사용. 예) 아르바이트 -> 알바, 네이버 카페 -> 네캎)",
         "channel_name": "키워드를 검색할 채널명 (예: 핫딜, 원신). 모르거나 통합검색이 적합할 경우 null",
         "channel_id": "키워드를 검색할 채널 ID (예: 'hotdeal', 'genshin'). 모르거나 통합검색이 적합할 경우 null",
         "reply_message": "mode가 clarify혹은 chat일 때 사용자의 입력에 대한 응답"
@@ -119,7 +146,12 @@ def query_controller_Arca(user_input):
             f"{system_instruction}\n\nUser Input: {user_input}",
             generation_config={"response_mime_type": "application/json"}
         )
-        return json.loads(response.text)
+        # 안전하게 텍스트 추출 시도
+        if response.parts:
+            return json.loads(response.text)
+        else:
+            return {"mode": "chat", "reply_message": "죄송합니다. 요청하신 내용이 안전 정책에 의해 차단되었거나 처리할 수 없습니다."}
+
     except Exception as e:
         return {"mode": "chat", "reply_message": "죄송합니다. 의도를 파악하는 중 오류가 발생했습니다."}
 
@@ -216,7 +248,7 @@ st.caption(f"{community_type} 실시간 여론 분석기 powered by Gemini")
 # 세션 초기화
 if "messages" not in st.session_state:
     st.session_state.messages = []
-    welcome_msg = "안녕하세요! 커뮤니티 여론 분석 봇입니다. 궁금한 게임, 인물, 이슈를 물어봐주세요."
+    welcome_msg = "안녕하세요! 커뮤니티 여론 분석 봇입니다. 궁금한 게임, 인물, 이슈 등을 물어봐주세요."
     st.session_state.messages.append({"role": "assistant", "content": welcome_msg})
 
 # 화면에 이전 대화 기록 출력
@@ -292,10 +324,13 @@ if prompt := st.chat_input("무엇을 분석해 드릴까요?"):
                         response_stream = query_analyst(prompt, data_summary, community_type)
                         
                         # 스트리밍 출력 루프
-                        for chunk in response_stream:
-                            if chunk.text:
-                                full_response += chunk.text
-                                message_placeholder.markdown(full_response + "▌")
+                        try:
+                            for chunk in response_stream:
+                                if chunk.parts: # parts가 있는지 확인
+                                    full_response += chunk.text
+                                    message_placeholder.markdown(full_response + "▌")
+                        except Exception as e:
+                            full_response += f"\n\n(분석 중 일부 내용이 차단되거나 오류가 발생했습니다: {str(e)})"
                         
                         # 스트리밍 완료 후 커서 제거
                         message_placeholder.markdown(full_response)

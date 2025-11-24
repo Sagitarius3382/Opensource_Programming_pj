@@ -31,7 +31,7 @@ USER_AGENT_LIST = [
 # robots.txt에 명시된 크롤링 금지(Disallow) 채널 ID 목록 정의
 DISALLOWED_CHANNEL_IDS = {'my'} 
 
-def get_arca_posts(channel_id: str, search_keyword: str = "", start_page: int = 1, end_page: int = 3) -> pd.DataFrame:
+def get_arca_posts(channel_id: str = "breaking", search_keyword: str = "", start_page: int = 1, end_page: int = 3) -> pd.DataFrame:
 	"""
 	아카라이브 채널 목록 및 채널 내 검색, 통합 검색(channel_id='breaking' 사용)을 Selenium을 사용하여 수행합니다.
 	게시글 본문과 함께 텍스트 댓글을 수집하여 '1. 내용' 형식으로 번호를 매겨 저장합니다.

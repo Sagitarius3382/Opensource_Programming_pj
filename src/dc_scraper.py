@@ -181,9 +181,9 @@ def get_regular_post_data(gallery_id: str, gallery_type: str = "minor", search_k
                     'PostID': post_id,
                     'Title': title_clean,
                     'Content': article_contents_clean,
+                    'Comments': None,
                     'GalleryID': gallery_id,
-                    'PostURL': full_url,
-                    'Comments': None
+                    'PostURL': full_url
                 })
 
     # ----------------------
@@ -341,9 +341,9 @@ def get_integrated_search_data(search_keyword: str, sort_type: str = "latest", s
                 'PostID': post_id,
                 'Title': title_clean,
                 'Content': article_contents_clean,
+                'Comments': None,
                 'GalleryID': gallery_name,
-                'PostURL': post_url,
-                'Comments': None
+                'PostURL': post_url
             })
             
     # 최종 DataFrame 변환 및 중복 제거
