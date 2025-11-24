@@ -1,4 +1,37 @@
 ### DC 인사이드 크롤러 내부 API 가이드
+    
+## 환경 설정 및 설치
+
+이 프로젝트는 Python 가상 환경을 사용하여 의존성을 관리합니다. 아래 절차를 따라 환경을 설정하세요.
+
+1.  **가상 환경 생성**:
+    ```bash
+    python -m venv venv
+    ```
+
+2.  **가상 환경 활성화**:
+    - Windows:
+        ```bash
+        .\venv\Scripts\activate
+        ```
+    - macOS/Linux:
+        ```bash
+        source venv/bin/activate
+        ```
+
+3.  **의존성 설치**:
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+4.  **환경 변수 설정**:
+    `.env.example` 파일을 복사하여 `.env` 파일을 생성하고 필요한 API 키를 입력하세요.
+    ```bash
+    cp .env.example .env
+    ```
+
+-----
+
 
 이 문서에서는 src/`scrapers.py` 파일에 정의된 두 가지 주요 데이터 수집 함수에 대한 사용법을 설명합니다.
 
