@@ -106,7 +106,7 @@ def get_arca_posts(
 
 | 매개변수 | 타입 | 기본값 | 설명 |
 | :--- | :--- | :--- | :--- |
-| `channel_id` | `str` | *필수* | 크롤링할 채널 ID (예: `wutheringwaves`). 통합 검색 시 `breaking`, 핫딜 채널은 `hotdeal`. |
+| `channel_id` | `str` | `breaking` | 크롤링할 채널 ID (예: `genshin`). 통합 검색 시 `breaking`, 핫딜 채널은 `hotdeal`. |
 | `search_keyword` | `str` | `""` | 검색할 키워드. |
 | `start_page` | `int` | `1` | 시작 페이지. |
 | `end_page` | `int` | `3` | 종료 페이지. |
@@ -199,6 +199,7 @@ def get_regular_post_data(
 | `PostID` | 게시물 고유 번호 |
 | `Title` | 게시물 제목 |
 | `Content` | 게시물 본문 텍스트 |
+| `comments` | 댓글들 (무조건 None: beautiful soup로는 스크래핑 불가능. 혹시 모를 오류 방지용) |
 | `GalleryID` | 갤러리 ID |
 | `PostURL` | 게시물 원본 URL |
 
@@ -231,8 +232,8 @@ def get_integrated_search_data(
 | `PostID` | 게시물 고유 번호 |
 | `Title` | 게시물 제목 |
 | `Content` | 게시물 본문 텍스트 |
-| `GalleryID` | 갤러리 ID |
-| `GalleryName` | 갤러리 이름 |
+| `comments` | 댓글들 (무조건 None: beautiful soup로는 스크래핑 불가능. 혹시 모를 오류 방지용) |
+| `GalleryID` | 갤러리 이름(ID가 아님) |
 | `PostURL` | 게시물 원본 URL |
 
 ---
