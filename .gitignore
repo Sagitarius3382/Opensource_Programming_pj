@@ -3,3 +3,9 @@
 
 # Jupyer Notebook Files
 .ipynb_checkpoints/
+
+# Virtual Environment
+venv/
+
+# Python cache
+__pycache__/
