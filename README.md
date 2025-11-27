@@ -115,6 +115,7 @@ def get_arca_posts(
 
 | 컬럼명 | 설명 |
 | :--- | :--- |
+| `Site` | 게시물이 게시된 사이트 |
 | `PostID` | 게시물 고유 번호 |
 | `Title` | 게시물 제목 |
 | `Content` | 게시물 본문 텍스트 |
@@ -196,6 +197,7 @@ def get_regular_post_data(
 
 | 컬럼명 | 설명 |
 | :--- | :--- |
+| `Site` | 게시물이 게시된 사이트 |
 | `PostID` | 게시물 고유 번호 |
 | `Title` | 게시물 제목 |
 | `Content` | 게시물 본문 텍스트 |
@@ -229,6 +231,7 @@ def get_integrated_search_data(
 
 | 컬럼명 | 설명 |
 | :--- | :--- |
+| `Site` | 게시물이 게시된 사이트 |
 | `PostID` | 게시물 고유 번호 |
 | `Title` | 게시물 제목 |
 | `Content` | 게시물 본문 텍스트 |
@@ -237,3 +240,36 @@ def get_integrated_search_data(
 | `PostURL` | 게시물 원본 URL |
 
 ---
+
+## 6. 혐오 표현 필터링 (Hate Speech Filter)
+
+수집된 데이터에서 혐오 표현을 감지하고 필터링하는 기능을 제공합니다. H2O AutoML 모델과 KoNLPy를 사용합니다.
+
+> **⚠️ 주의: Java 설치 필요**
+> `h2o`와 `konlpy` 라이브러리 사용을 위해서는 시스템에 **Java (JDK)**가 설치되어 있어야 합니다.
+
+### 6.1. 혐오 표현 필터링 함수 (`src/preprocessor.py`)
+
+```python
+def filter_hate_speech(
+    df: pd.DataFrame, 
+    model_path: str = MODEL_PATH, 
+    vectorizer_path: str = VECTORIZER_PATH
+) -> pd.DataFrame
+```
+
+#### 매개변수 설명
+
+| 매개변수 | 타입 | 기본값 | 설명 |
+| :--- | :--- | :--- | :--- |
+| `df` | `pd.DataFrame` | *필수* | 필터링할 데이터프레임. `Title`, `Content`, `Comments` 컬럼을 포함해야 합니다. |
+| `model_path` | `str` | `models/GLM_...` | 학습된 H2O 모델 파일 경로. |
+| `vectorizer_path` | `str` | `models/tfidf...` | 학습된 TF-IDF 벡터라이저 파일 경로. |
+
+#### 반환 값
+
+| 설명 |
+| :--- |
+| 혐오 표현이 포함된 게시물(Title, Content)은 **행 전체가 삭제**됩니다. |
+| 댓글(Comments)의 경우, 혐오 표현으로 감지된 **개별 댓글만 제거**되고 나머지 정상 댓글은 유지됩니다. |
+| 필터링된 결과가 담긴 새로운 `pd.DataFrame`을 반환합니다. |

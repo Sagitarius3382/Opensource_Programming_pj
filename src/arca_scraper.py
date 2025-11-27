@@ -31,10 +31,10 @@ USER_AGENT_LIST = [
 # robots.txt에 명시된 크롤링 금지(Disallow) 채널 ID 목록 정의
 DISALLOWED_CHANNEL_IDS = {'my'} 
 
-def get_arca_posts(channel_id: str = "breaking", search_keyword: str = "", start_page: int = 1, end_page: int = 3) -> pd.DataFrame:
+def get_arca_posts(channel_id: str, search_keyword: str = "", start_page: int = 1, end_page: int = 3) -> pd.DataFrame:
 	"""
 	아카라이브 채널 목록 및 채널 내 검색, 통합 검색(channel_id='breaking' 사용)을 Selenium을 사용하여 수행합니다.
-	게시글 본문과 함께 텍스트 댓글을 수집하여 '1. 내용' 형식으로 번호를 매겨 저장합니다.
+	게시글 본문과 함께 텍스트 댓글을 수집하여 저장합니다.
 	
 	:param channel_id: 크롤링할 아카라이브 채널 ID (예: 'wutheringwaves' 또는 통합 검색용 'breaking', 'hotdeal')
 	:param search_keyword: 검색 키워드 (선택 사항)
@@ -48,6 +48,17 @@ def get_arca_posts(channel_id: str = "breaking", search_keyword: str = "", start
 	# robots.txt disallow 채널 필터링
 	if channel_id in DISALLOWED_CHANNEL_IDS:
 		print(f"\n🚨 경고: 채널 ID '{channel_id}'는 robots.txt에 의해 크롤링이 금지된 ID입니다. 작업을 중단합니다.")
+
+		data_list.append({
+						'Site': 'ARCALIVE',
+						'PostID': 'robots.txt disallow',
+						'Title': 'robots.txt disallow',
+						'Content': f"\n🚨 경고: 채널 ID '{channel_id}'는 robots.txt에 의해 크롤링이 금지된 ID입니다. 작업을 중단합니다.",
+						'Comments': 'robots.txt disallow',
+						'GalleryID': 'robots.txt disallow', 
+						'PostURL': 'robots.txt disallow'
+					})
+
 		return pd.DataFrame(data_list)
 	
 	# WebDriver 설정
@@ -181,22 +192,20 @@ def get_arca_posts(channel_id: str = "breaking", search_keyword: str = "", start
 					if article_contents_tag:
 						article_contents = article_contents_tag.get_text('\n', strip=True)
 					
-					# 2. 댓글 추출 (작성자 제외, 텍스트만 추출하여 번호 매기기)
+					# 2. 댓글 추출 (작성자 제외)
 					comment_items = article_soup.select('div.comment-item')
 					extracted_comments = []
 					
 					for c_item in comment_items:
 						text_tag = c_item.select_one('div.message div.text pre')
 						if text_tag:
-							c_text = text_tag.get_text(strip=True)
+							c_text = text_tag.get_text('\n', strip=True)
 							if c_text:
 								extracted_comments.append(c_text)
 					
 					# Gemini가 인식하기 좋도록 단순 번호 매기기 (예: 1. 댓글내용)
 					if extracted_comments:
-						comments_formatted = "\n".join([f"{i}. {c}" for i, c in enumerate(extracted_comments, 1)])
-					else:
-						comments_formatted = "" # 댓글이 없거나 텍스트 댓글이 없는 경우 빈 문자열
+						comments_formatted = " ||| ".join(extracted_comments)
 
 				except TimeoutException:
 					print(f" 	 -> 게시물 본문 로드 시간 초과 ({post_full_url}). 본문/댓글 수집 건너뜁니다.")
@@ -218,6 +227,7 @@ def get_arca_posts(channel_id: str = "breaking", search_keyword: str = "", start
 				# 최소한의 내용(본문)이 있어야 저장합니다.
 				if article_contents_clean:
 					data_list.append({
+						'Site': 'ARCALIVE',
 						'PostID': post_id,
 						'Title': title_clean,
 						'Content': article_contents_clean,
