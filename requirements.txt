@@ -10,3 +10,5 @@ h2o
 konlpy
 scikit-learn
 joblib
+polars
+pyarrow
