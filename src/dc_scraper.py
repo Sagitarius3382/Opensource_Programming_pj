@@ -50,6 +50,25 @@ def get_driver():
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     
+    # [핵심 수정 1] 페이지 로드 전략: 'eager'
+    # normal: 모든 리소스(이미지, CSS, 광고 등)가 로드될 때까지 대기 (가장 느리고 무거움)
+    # eager: DOMContentLoaded 이벤트까지만 대기 (이미지 로딩 안 기다림 -> 훨씬 빠르고 가벼움)
+    options.page_load_strategy = 'eager'
+
+    # [핵심 수정 2] 강력한 리소스 차단 설정 (이미지, JS 팝업 등 차단)
+    prefs = {
+        "profile.managed_default_content_settings.images": 2,  # 이미지 로딩 차단 (2=Block)
+        "profile.default_content_setting_values.notifications": 2, # 알림 차단
+        "profile.managed_default_content_settings.stylesheets": 2, # CSS 일부 차단 (브라우저에 따라 안 먹힐 수 있음)
+        "profile.managed_default_content_settings.cookies": 1,
+        "profile.managed_default_content_settings.javascript": 1, # JS는 켜야 함 (1=Allow)
+        "profile.managed_default_content_settings.plugins": 1,
+        "profile.managed_default_content_settings.popups": 2,
+        "profile.managed_default_content_settings.geolocation": 2,
+        "profile.managed_default_content_settings.media_stream": 2,
+    }
+    options.add_experimental_option("prefs", prefs)
+
     user_agent = random.choice(USER_AGENT_LIST)
     options.add_argument(f'user-agent={user_agent}')
     
@@ -132,7 +151,7 @@ def get_regular_post_data(gallery_id: str, gallery_type: str = "minor", search_k
         return pd.DataFrame(data_list)
 
     try:
-        for i in range(start_page, end_page + 1):
+        for i in range(int(start_page), int(end_page) + 1):
             
             # --- 1단계: 목록 페이지 URL 구성 ---
             params = {'id': gallery_id, 'page': i}
@@ -146,7 +165,7 @@ def get_regular_post_data(gallery_id: str, gallery_type: str = "minor", search_k
                 params['s_keyword'] = search_keyword
             
             full_list_url = f"{BASE_URL}{board_path}?{urllib.parse.urlencode(params)}"
-            print(f"--- [DC 일반] 목록 페이지 {i} 진입: {full_list_url} ---")
+            print(f"--- [DC 일반] 목록 페이지 {i} 진입. 갤러리: {gallery_id}, 검색어: {search_keyword}, URL: {full_list_url} ---")
             
             try:
                 driver.get(full_list_url)
@@ -154,7 +173,7 @@ def get_regular_post_data(gallery_id: str, gallery_type: str = "minor", search_k
                     EC.presence_of_element_located((By.CSS_SELECTOR, 'tbody tr.ub-content'))
                 )
             except (TimeoutException, UnexpectedAlertPresentException):
-                print(f"목록 페이지 {i} 로딩 실패 또는 알림창 발생. 다음 페이지로 이동.")
+                print(f"[DC 일반] 목록 페이지 {i} 로딩 실패 또는 알림창 발생. 다음 페이지로 이동.")
                 continue
 
             # BS4로 목록 파싱
@@ -182,10 +201,10 @@ def get_regular_post_data(gallery_id: str, gallery_type: str = "minor", search_k
                 valid_rows.append(row)
 
             if not valid_rows:
-                print(f"페이지 {i}에 수집 가능한 게시물이 없습니다.")
+                print(f"[DC 일반] 페이지 {i}에 수집 가능한 게시물이 없습니다.")
                 continue
 
-            print(f"-> 페이지 {i}에서 {len(valid_rows)}개의 게시물 발견.")
+            print(f"-> [DC 일반] 페이지 {i}에서 {len(valid_rows)}개의 게시물 발견.")
 
             # --- 2단계: 개별 게시물 순회 ---
             for row in valid_rows:
@@ -206,11 +225,11 @@ def get_regular_post_data(gallery_id: str, gallery_type: str = "minor", search_k
                     post_full_url = BASE_URL + relative_url
 
                 # 랜덤 딜레이
-                time.sleep(random.uniform(1.5, 3.0))
+                time.sleep(random.uniform(1.5, 3.5))
 
                 # --- 3단계: 본문 및 댓글 수집 ---
                 try:
-                    print(f"   -> 게시물 접속: {title_raw[:15]}... (ID: {post_id})")
+                    print(f"   -> [DC 일반] 게시물 접속: {title_raw[:20]}... (ID: {post_id}, 갤러리: {gallery_id})")
                     driver.get(post_full_url)
                     
                     WebDriverWait(driver, 10).until(
@@ -243,8 +262,8 @@ def get_regular_post_data(gallery_id: str, gallery_type: str = "minor", search_k
                             'PostURL': post_full_url
                         })
 
-                except (TimeoutException, UnexpectedAlertPresentException) as e:
-                    print(f"   -> 게시물 로딩 실패 또는 삭제됨: {e}")
+                except Exception as e:
+                    print(f"   -> [DC 일반] 상세 수집 실패: {e}")
                     continue
 
     finally:
@@ -276,11 +295,11 @@ def get_integrated_search_data(search_keyword: str, sort_type: str = "latest", s
         return pd.DataFrame(data_list)
 
     try:
-        for i in range(start_page, end_page + 1):
+        for i in range(int(start_page), int(end_page) + 1):
             
             # 검색 URL 구성
             full_search_url = f"{SEARCH_BASE_URL}p/{i}/{sort_path}q/{encoded_keyword}"
-            print(f"--- [DC 통합] 검색 페이지 {i} 진입: {search_keyword} ---")
+            print(f"--- [DC 통합] 검색 페이지 {i} 진입. 검색어: {search_keyword} , URL: {full_search_url} ---")
             
             try:
                 driver.get(full_search_url)
@@ -288,14 +307,14 @@ def get_integrated_search_data(search_keyword: str, sort_type: str = "latest", s
                     EC.presence_of_element_located((By.CSS_SELECTOR, 'ul.sch_result_list'))
                 )
             except TimeoutException:
-                print(f"검색 페이지 {i} 로딩 실패. 종료.")
+                print(f"[DC 통합] 검색 페이지 {i} 로딩 실패. 종료.")
                 break
                 
             soup = BeautifulSoup(driver.page_source, 'lxml')
             result_items = soup.select('ul.sch_result_list li')
             
             if not result_items:
-                print("검색 결과가 없습니다.")
+                print("[DC 통합] 검색 결과가 없습니다.")
                 break
                 
             # 결과 아이템 순회
@@ -324,10 +343,10 @@ def get_integrated_search_data(search_keyword: str, sort_type: str = "latest", s
                     continue
 
                 # 상세 페이지 진입
-                time.sleep(random.uniform(2.0, 4.0))
+                time.sleep(random.uniform(1.5, 3.5))
                 
                 try:
-                    print(f"   -> 검색 게시물 접속: {title_raw[:15]}... ({gallery_name})")
+                    print(f"   -> [DC 통합] 검색 게시물 접속: {title_raw[:20]}... (ID: {post_id}, 갤러리: {gallery_name})")
                     driver.get(post_url)
                     
                     WebDriverWait(driver, 10).until(
@@ -358,7 +377,7 @@ def get_integrated_search_data(search_keyword: str, sort_type: str = "latest", s
                     })
                     
                 except Exception as e:
-                    print(f"   -> 상세 수집 실패: {e}")
+                    print(f"   -> [DC 통합] 상세 수집 실패: {e}")
                     continue
 
     finally:

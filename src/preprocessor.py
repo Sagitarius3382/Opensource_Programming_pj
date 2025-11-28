@@ -26,13 +26,13 @@ VECTORIZER_FILENAME = "tfidf_vectorizer.pkl"
 MODEL_PATH = os.path.join(MODEL_DIR, MODEL_FILENAME)
 VECTORIZER_PATH = os.path.join(MODEL_DIR, VECTORIZER_FILENAME)
 
-# 혐오 판단 임계값 (0.85 이상이면 혐오로 간주)
-HATE_THRESHOLD = 0.85 
+# 혐오 판단 임계값 (해당 수치 이상이면 혐오로 간주)
+HATE_THRESHOLD = 0.88 
 
 # 형태소 분석기 전역 인스턴스
 okt = Okt()
 
-def init_h2o(max_mem_size="1G"):
+def init_h2o(max_mem_size="4G"):
     """
     H2O 클러스터를 초기화합니다.
     이미 실행 중이라면 연결을 시도합니다.

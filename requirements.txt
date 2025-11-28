@@ -12,3 +12,4 @@ scikit-learn
 joblib
 polars
 pyarrow
+webdriver-manager
