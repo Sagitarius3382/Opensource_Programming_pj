@@ -44,7 +44,7 @@ with st.sidebar:
     st.caption("Powered by Google Gemini")
 
 # --------------------------------------------------------------------------
-# 3. Gemini 모델 로드 (기존 로직 유지)
+# 3. Gemini 모델 로드 
 # --------------------------------------------------------------------------
 @st.cache_resource
 def get_gemini_model():
@@ -87,7 +87,7 @@ def get_gemini_model():
     return genai.GenerativeModel(YOUR_MODEL, safety_settings=safety_settings)
 
 # --------------------------------------------------------------------------
-# 4. 핵심 로직 함수 (Stage 2)
+# 4. 핵심 로직 함수 
 # --------------------------------------------------------------------------
 
 def get_search_plan(user_input):
@@ -150,6 +150,12 @@ def execute_crawling(tasks):
             keyword = task.get("keyword")
             options = task.get("options", {})
             
+            # 디버깅: 전달되는 파라미터 출력
+            print(f"[DEBUG] Crawling Task:")
+            print(f"  - Target: {target}")
+            print(f"  - Keyword: {keyword}")
+            print(f"  - Options: {options}")
+            
             # search_community(target_source, keyword, start_page, end_page, **kwargs)
             # 기본적으로 1~2페이지만 긁도록 설정 (속도 위해)
             future = executor.submit(search_community, target, keyword, 1, 2, **options)
@@ -159,22 +165,20 @@ def execute_crawling(tasks):
             task = future_to_task[future]
             try:
                 df = future.result()
+                print(f"[DEBUG] Crawling result for {task.get('target_source')}: {len(df)} rows")
                 if not df.empty:
                     # 출처 표기를 위해 컬럼 추가
                     df["Source"] = task.get("target_source")
                     df["Keyword"] = task.get("keyword")
                     all_results.append(df)
+                else:
+                    print(f"[DEBUG] Empty DataFrame returned for {task.get('target_source')}")
             except Exception as e:
                 st.error(f"크롤링 중 오류 발생 ({task}): {e}")
+                print(f"[DEBUG] Exception during crawling: {e}")
 
     if all_results:
         final_df = pd.concat(all_results, ignore_index=True)
-        # 혐오 표현 필터링 적용
-        try:
-            final_df = filter_hate_speech(final_df)
-        except Exception as e:
-            st.warning(f"필터링 중 오류가 발생하여 원본 데이터를 사용합니다: {e}")
-            
         return final_df
     else:
         return pd.DataFrame()
@@ -223,7 +227,7 @@ def generate_report(user_input, df):
 # --------------------------------------------------------------------------
 # 5. 메인 로직 
 # --------------------------------------------------------------------------
-st.title("🕵️‍♂️ Community Insight Bot (AI Auto-Mode)")
+st.title("🕵️‍♂️ Community Insight Bot (Auto-Mode)")
 st.caption("AI가 자동으로 커뮤니티를 선정하고 여론을 분석합니다.")
 
 if "messages" not in st.session_state:
@@ -236,10 +240,95 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"], avatar=avatar_img):
         st.markdown(message["content"])
 
-# 사용자 입력 대기 (로직은 비워둠)
+# 사용자 입력 처리
 if prompt := st.chat_input("무엇을 분석해 드릴까요?"):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
-    
-    st.info("🚧 [Stage 2] 핵심 로직 함수 구현 완료. 다음 단계에서 UI와 연결할 예정입니다.")
+
+    # AI 응답 생성 시작
+    with st.chat_message("assistant", avatar="assets/purple_avatar.png"):
+        message_placeholder = st.empty()
+        full_response = ""
+        
+        with st.status("🤔 사용자의 질문을 분석하고 있습니다...", expanded=True) as status:
+            
+            # [Step 1] 검색 계획 수립
+            plan = get_search_plan(prompt)
+            mode = plan.get("mode", "chat")
+            
+            # 디버깅: Gemini가 생성한 계획 출력
+            print(f"[DEBUG] Gemini Plan Generated:")
+            print(f"  - Mode: {mode}")
+            print(f"  - Reply Message: {plan.get('reply_message', 'N/A')}")
+            print(f"  - Tasks: {plan.get('tasks', [])}")
+            
+            if mode == "search":
+                tasks = plan.get("tasks", [])
+                
+                # 계획 내용 표시
+                task_summary = []
+                for t in tasks:
+                    target = t.get('target_source')
+                    keyword = t.get('keyword')
+                    task_summary.append(f"{target.upper()}: '{keyword}'")
+                
+                status.write(f"📋 **검색 계획 수립 완료**: {', '.join(task_summary)}")
+                status.update(label="데이터를 수집하고 있습니다...", state="running")
+                
+                # [Step 2] 크롤링 실행
+                raw_df = execute_crawling(tasks)
+                
+                if not raw_df.empty:
+                    initial_count = len(raw_df)
+                    status.write(f"✅ 총 {initial_count}건의 데이터를 수집했습니다.")
+                    status.update(label="혐오 표현을 필터링하고 있습니다...", state="running")
+                    
+                    # [Step 3] 혐오 표현 필터링
+                    try:
+                        clean_df = filter_hate_speech(raw_df)
+                        final_count = len(clean_df)
+                        filtered_count = initial_count - final_count
+                        
+                        if filtered_count > 0:
+                            status.write(f"🧹 **필터링 완료**: {filtered_count}건의 부적절한 게시물을 제외했습니다. (남은 데이터: {final_count}건)")
+                        else:
+                            status.write("✨ 필터링된 게시물이 없습니다. (깨끗한 데이터)")
+                            
+                    except Exception as e:
+                        st.warning(f"필터링 중 오류 발생: {e}")
+                        clean_df = raw_df
+                    
+                    status.update(label="최종 보고서를 작성하고 있습니다...", state="running")
+                    
+                    # [Step 4] 보고서 작성
+                    response_stream = generate_report(prompt, clean_df)
+                    
+                    try:
+                        for chunk in response_stream:
+                            if chunk.parts:
+                                full_response += chunk.text
+                                message_placeholder.markdown(full_response + "▌")
+                    except Exception as e:
+                        full_response += f"\n\n(분석 중 오류 발생: {str(e)})"
+                    
+                    message_placeholder.markdown(full_response)
+                    status.update(label="분석 완료!", state="complete", expanded=False)
+                    
+                    # [Step 5] 원본 데이터 확인 (Expander)
+                    with st.expander("📊 수집된 원본 데이터 확인"):
+                        st.dataframe(clean_df, use_container_width=True)
+                        
+                else:
+                    full_response = "😥 검색 결과가 없습니다. 다른 키워드로 질문해 보시겠어요?"
+                    message_placeholder.markdown(full_response)
+                    status.update(label="검색 실패", state="error", expanded=False)
+            
+            else:
+                # Chat / Clarify 모드
+                full_response = plan.get("reply_message", "죄송합니다. 다시 말씀해 주시겠어요?")
+                message_placeholder.markdown(full_response)
+                status.update(label="대화 모드", state="complete", expanded=False)
+                
+    # 세션 기록 저장
+    st.session_state.messages.append({"role": "assistant", "content": full_response})
