@@ -4,6 +4,7 @@ import time
 import pandas as pd
 import streamlit as st
 import google.generativeai as genai
+import concurrent.futures
 from dotenv import load_dotenv
 
 # --------------------------------------------------------------------------
@@ -17,7 +18,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# 새로운 모듈 임포트 (Stage 1 요구사항)
+# 새로운 모듈 임포트
 try:
     from src.crawler_wrapper import search_community
     from src.preprocessor import filter_hate_speech
@@ -86,7 +87,141 @@ def get_gemini_model():
     return genai.GenerativeModel(YOUR_MODEL, safety_settings=safety_settings)
 
 # --------------------------------------------------------------------------
-# 4. 메인 로직 (Stage 2에서 구현 예정)
+# 4. 핵심 로직 함수 (Stage 2)
+# --------------------------------------------------------------------------
+
+def get_search_plan(user_input):
+    """
+    사용자의 질문을 분석하여 검색 계획을 수립합니다.
+    """
+    model = get_gemini_model()
+    
+    system_instruction = """
+    너는 '커뮤니티 여론 분석을 위한 검색 설계자'야. 
+    사용자의 질문을 분석해서 어떤 커뮤니티(DCInside, ArcaLive)를 어떤 키워드로 검색할지 구체적인 계획을 세워줘.
+    
+    [필수 규칙]
+    1. 사용자가 "여론", "반응", "평가" 등을 물으면 mode="search"로 설정해.
+    2. **검색어(keyword)는 공식 명칭보다 실제로 커뮤니티에서 많이 쓰이는 '은어'나 '줄임말'을 우선적으로 선택해.** (예: 블루 아카이브 -> 블아, 몰루 / 리그오브레전드 -> 롤)
+    3. DCInside는 'gallery_id', ArcaLive는 'channel_id'를 반드시 추론해서 options에 포함해야 해. (모르면 'major'나 'breaking' 같은 기본값이라도 넣어)
+    4. 응답은 반드시 아래 JSON 형식으로만 출력해. (Markdown 코드블럭 없이 순수 JSON만)
+
+    [JSON 출력 형식]
+    {
+        "mode": "search" | "clarify" | "chat",
+        "reply_message": "사용자에게 할 말 (계획을 세웠다면 '잠시만 기다려주세요, ~에 대해 알아보고 있습니다.' 등)",
+        "tasks": [
+            {
+                "target_source": "dc" | "arca",
+                "keyword": "은어_기반_검색어",
+                "options": {
+                    "gallery_id": "추론된_갤러리ID (dc 필수)",
+                    "channel_id": "추론된_채널ID (arca 필수)",
+                    "gallery_type": "major", 
+                    "sort_type": "latest"
+                }
+            }
+        ]
+    }
+    """
+    
+    try:
+        response = model.generate_content(
+            f"{system_instruction}\n\nUser Input: {user_input}",
+            generation_config={"response_mime_type": "application/json"}
+        )
+        if response.parts:
+            return json.loads(response.text)
+        else:
+            return {"mode": "chat", "reply_message": "죄송합니다. 계획을 수립하는 중 문제가 발생했습니다.", "tasks": []}
+    except Exception as e:
+        return {"mode": "chat", "reply_message": f"오류가 발생했습니다: {str(e)}", "tasks": []}
+
+def execute_crawling(tasks):
+    """
+    수립된 계획(tasks)을 병렬로 실행하여 데이터를 수집합니다.
+    """
+    all_results = []
+    
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future_to_task = {}
+        for task in tasks:
+            target = task.get("target_source")
+            keyword = task.get("keyword")
+            options = task.get("options", {})
+            
+            # search_community(target_source, keyword, start_page, end_page, **kwargs)
+            # 기본적으로 1~2페이지만 긁도록 설정 (속도 위해)
+            future = executor.submit(search_community, target, keyword, 1, 2, **options)
+            future_to_task[future] = task
+            
+        for future in concurrent.futures.as_completed(future_to_task):
+            task = future_to_task[future]
+            try:
+                df = future.result()
+                if not df.empty:
+                    # 출처 표기를 위해 컬럼 추가
+                    df["Source"] = task.get("target_source")
+                    df["Keyword"] = task.get("keyword")
+                    all_results.append(df)
+            except Exception as e:
+                st.error(f"크롤링 중 오류 발생 ({task}): {e}")
+
+    if all_results:
+        final_df = pd.concat(all_results, ignore_index=True)
+        # 혐오 표현 필터링 적용
+        try:
+            final_df = filter_hate_speech(final_df)
+        except Exception as e:
+            st.warning(f"필터링 중 오류가 발생하여 원본 데이터를 사용합니다: {e}")
+            
+        return final_df
+    else:
+        return pd.DataFrame()
+
+def generate_report(user_input, df):
+    """
+    수집된 데이터를 바탕으로 최종 보고서를 작성합니다.
+    """
+    model = get_gemini_model()
+    
+    if df.empty:
+        return "수집된 데이터가 없어 보고서를 작성할 수 없습니다."
+        
+    # 토큰 절약을 위해 상위 30개 정도만 프롬프트에 포함
+    summary_text = ""
+    # 컬럼명 대소문자 호환성을 위해 처리
+    cols = df.columns
+    title_col = next((c for c in cols if c.lower() == 'title'), 'title')
+    content_col = next((c for c in cols if c.lower() == 'content'), 'content')
+
+    for idx, row in df.head(30).iterrows():
+        title = row.get(title_col, "No Title")
+        content = str(row.get(content_col, ""))[:100]
+        summary_text += f"- {title}: {content}\n"
+        
+    prompt = f"""
+    당신은 커뮤니티 여론 분석 전문가입니다.
+    
+    [사용자 질문]
+    {user_input}
+    
+    [수집된 데이터 요약]
+    {summary_text}
+    
+    위 데이터를 바탕으로 상세한 보고서를 작성해주세요.
+    다음 항목을 반드시 포함하세요:
+    1. **3줄 요약**: 전체적인 여론의 핵심 요약
+    2. **긍정 여론**: 유저들이 긍정적으로 평가하는 요소
+    3. **부정 여론**: 유저들이 불만이나 비판을 제기하는 요소
+    4. **주요 논쟁**: 현재 가장 뜨거운 감자나 논쟁거리
+    5. **종합 평가**: 결론 및 제언
+    """
+    
+    return model.generate_content(prompt, stream=True)
+
+# --------------------------------------------------------------------------
+# 5. 메인 로직 
 # --------------------------------------------------------------------------
 st.title("🕵️‍♂️ Community Insight Bot (AI Auto-Mode)")
 st.caption("AI가 자동으로 커뮤니티를 선정하고 여론을 분석합니다.")
@@ -107,4 +242,4 @@ if prompt := st.chat_input("무엇을 분석해 드릴까요?"):
     with st.chat_message("user"):
         st.markdown(prompt)
     
-    st.info("🚧 [Stage 1] 현재 기본 설정만 완료되었습니다. 다음 단계에서 분석 로직이 구현될 예정입니다.")
+    st.info("🚧 [Stage 2] 핵심 로직 함수 구현 완료. 다음 단계에서 UI와 연결할 예정입니다.")
