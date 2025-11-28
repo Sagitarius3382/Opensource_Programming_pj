@@ -269,12 +269,15 @@ def get_regular_post_data(gallery_id: str, gallery_type: str = "minor", search_k
     finally:
         driver.quit()
         print("--- WebDriver 종료 ---")
-    
-    # 결과 DF 생성 및 중복 제거
+
     df = pd.DataFrame(data_list)
+    
     if not df.empty:
         df = df.drop_duplicates(subset=['GalleryID', 'PostID'], keep='first')
-        
+        print(f"\n--- 크롤링 완료 및 중복 제거 ---")
+        print(f"총 수집된 게시물 수 (원본): {len(data_list)}개")
+        print(f"중복 제거 후 최종 게시물 수: {len(df)}개")
+            
     return df
 
 
@@ -383,11 +386,14 @@ def get_integrated_search_data(search_keyword: str, sort_type: str = "latest", s
     finally:
         driver.quit()
         print("--- 검색 WebDriver 종료 ---")
-        
+
     df = pd.DataFrame(data_list)
     if not df.empty:
-        df = df.drop_duplicates(subset=['PostID', 'PostURL'], keep='first')
-        
+        df = df.drop_duplicates(subset=['GalleryID', 'PostID'], keep='first')
+        print(f"\n--- 크롤링 완료 및 중복 제거 ---")
+        print(f"총 수집된 게시물 수 (원본): {len(data_list)}개")
+        print(f"중복 제거 후 최종 게시물 수: {len(df)}개")
+            
     return df
 
 # -----------------------------------------------------------

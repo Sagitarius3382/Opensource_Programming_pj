@@ -6,6 +6,7 @@ import pandas as pd
 import streamlit as st
 import google.generativeai as genai
 import concurrent.futures
+import altair as alt  # 원형 그래프 생성을 위한 시각화 라이브러리
 from dotenv import load_dotenv
 
 # --------------------------------------------------------------------------
@@ -28,20 +29,28 @@ except ImportError as e:
     st.stop()
 
 # --------------------------------------------------------------------------
-# 2. 사이드바 설정 (커뮤니티 선택 제거, API 키 확인 유지)
+# 2. 사이드바 설정 (API 상태 표시)
 # --------------------------------------------------------------------------
 with st.sidebar:
     st.header("⚙️ 설정")
     
-    # API 키 및 모델 설정 확인 (기존 로직 유지)
-    if not os.getenv("API_KEY"):
-        st.error("🚨 API 키가 설정되지 않았습니다. .env 파일을 확인해주세요.")
-    
-    if not os.getenv("MODEL"):
-        st.warning("⚠️ 모델이 설정되지 않았습니다. .env 파일을 확인해주세요.")
+    api_key = os.getenv("API_KEY")
+    model_name = os.getenv("MODEL")
+
+    if api_key and model_name:
+        st.success("🟢 API 연동 정상")
+        st.markdown(f"**사용 모델:** `{model_name}`")
+    else:
+        st.error("🔴 API 연동 실패")
+        if not api_key:
+            st.warning("API 키가 누락되었습니다.")
+        if not model_name:
+            st.warning("모델 설정이 누락되었습니다.")
         
-    st.info("AI가 사용자의 질문을 분석하여 자동으로 커뮤니티(DC/Arca)를 선정하고 데이터를 수집합니다.")
     st.markdown("---")
+    st.info("AI가 사용자의 질문을 분석하여 자동으로 커뮤니티(DC/Arca)를 선정하고 데이터를 수집합니다.")
+    st.info("Tip) 디시인사이드 검색의 기본값은 통합검색이지만, 갤러리 검색을 원할 경우 채널 id와 함께 지정할 수 있습니다. (예: 헤드폰 마이너 갤러리(id=newheadphone)에서 검색해줘.)")
+    st.info("Tip) 디시인사이드 통합검색의 기본값은 최신순이지만, 정확도 순으로 검색해달라고 하면 정확도순으로 설정됩니다.")
     st.caption("Powered by Google Gemini")
 
 # --------------------------------------------------------------------------
@@ -50,39 +59,23 @@ with st.sidebar:
 @st.cache_resource
 def get_gemini_model():
     """
-    Gemini 모델을 로드합니다. 
-    st.cache_resource를 사용하여 세션 간 모델 객체를 공유합니다.
+    Gemini 모델 로드 (캐싱 적용)
     """
     YOUR_API_KEY = os.getenv("API_KEY")
     if not YOUR_API_KEY:
-        st.error("🚨 API 키가 설정되지 않았습니다. .env 파일을 확인해주세요.")
         st.stop()
 
     YOUR_MODEL = os.getenv("MODEL")
     if not YOUR_MODEL:
-        st.error("모델이 설정되지 않았습니다. '.env' 파일에 'MODEL'을 설정해주세요.")
         st.stop()
         
     genai.configure(api_key=YOUR_API_KEY)
     
-    # 안전 설정: 모든 카테고리에 대해 차단 없음(BLOCK_NONE)으로 설정하여 오탐지 방지
     safety_settings = [
-        {
-            "category": "HARM_CATEGORY_HARASSMENT",
-            "threshold": "BLOCK_NONE"
-        },
-        {
-            "category": "HARM_CATEGORY_HATE_SPEECH",
-            "threshold": "BLOCK_NONE"
-        },
-        {
-            "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-            "threshold": "BLOCK_NONE"
-        },
-        {
-            "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
-            "threshold": "BLOCK_NONE"
-        },
+        {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
     ]
     
     return genai.GenerativeModel(YOUR_MODEL, safety_settings=safety_settings)
@@ -103,9 +96,9 @@ def get_search_plan(user_input):
     
     [필수 규칙]
     1. 사용자가 "여론", "반응", "평가" , "의견" , "근황" 등 키워드 검색이 가능한 것을 물으면 mode="search"로 설정해.
-    2. **검색어(keyword)는 공식 명칭보다 실제로 커뮤니티에서 많이 쓰이는 '은어'나 '줄임말'을 우선적으로 선택해.** (예: 블루 아카이브 -> 블아, 리그오브레전드 -> 롤, 맨체스터 유나이티드 -> 맨유)
+    2. **검색어(keyword)는 공식 명칭보다 실제로 커뮤니티에서 많이 쓰이는 '단어의 일부분', '은어'나 '줄임말'을 우선적으로 선택해.** (예: 갤럭시 S25 -> S25, 블루 아카이브 -> 블아, 리그오브레전드 -> 롤, 맨체스터 유나이티드 -> 맨유)
     3. **[타겟 선정]** 특정 사이트 언급이 없으면, 해당 주제가 활발한 곳을 자동으로 판단하되 **잘 모르겠거나 대중적인 게임/이슈라면 ["dc", "arca"] 두 곳에 대해 task를 총 2개 생성해야해.**
-    4. 일반적인 경우에는 통합검색을 우선시 하되, 명확한 타겟 갤러리가 존재할 경우(DCInside는 'gallery_id'를 확인해서 task['options']에 포함해야 해.
+    4. **task['options']의 'gallery_id'와 'gallery_type'는 사용자가 특별히 갤러리를 지정하지 않는 이상 null 값이야(통합검색 이용).**
     5. 응답은 반드시 아래 JSON 형식에 맞춰서 반환해줘.
 
     [mode 판단 기준]
@@ -120,15 +113,15 @@ def get_search_plan(user_input):
         "tasks": [
             {
                 "target_source": "dc" | "arca",
-                "keyword": "검색어, 검색결과가 좋을 것이라고 생각되면 은어, 줄임말 적극적으로 사용. 특정 주제의 갤러리 검색 시 주제 관련 단어는 제거. (예: 원신 갤러리 검색 시, '원신 필수캐' -> '필수캐')",
+                "keyword": "검색어: 단어의 일부분, 줄임말, 은어를 적극적으로 사용. 특정 주제의 갤러리 검색 시 주제 관련 단어는 제거. (예: 원신 갤러리 검색 시, '원신 필수캐' -> '필수캐')",
                 "options": {
                     # dc, arca 공통 파라미터
                     "end_page": "종료 페이지 (커뮤니티 하나만 탐색할 때는 '2', 두 곳 모두(len(tasks) == 2)일 때는 '1')",
 
                     # "target_source" == "dc" 일 때 입력할 내용
-                    "gallery_id": "키워드를 검색할 갤러리의 갤러리 ID (예: 'maplestory_new', 'leagueoflegends6', 'chzzk'). 모르거나 통합검색이 적합할 경우 null ",
-                    "gallery_type": "gallery_id값에 해당하는 갤러리의 종류로 다음 둘 중 하나 ('major' | 'minor'). 통합검색이 적합할 경우 null", 
-                    "sort_type": "latest"
+                    "gallery_id": "기본값은 null. 사용자 요청이 있을 시 키워드를 검색할 갤러리의 갤러리 ID (예: 'maplestory_new', 'leagueoflegends6', 'chzzk').",
+                    "gallery_type": "기본값은 null. 사용자의 요청이 있을 시 gallery_id값에 해당하는 갤러리의 종류를 기재. ('major' | 'minor').", 
+                    "sort_type": 기본값은 "latest". 사용자의 '정확도 순' 요청이 있을 시 "accuracy".
 
                     # "target_source" == "arca" 일 때 입력할 내용
                     "channel_id": "breaking" (항상 통합검색 사용),
@@ -151,9 +144,6 @@ def get_search_plan(user_input):
         return {"mode": "chat", "reply_message": f"오류가 발생했습니다: {str(e)}", "tasks": []}
 
 def execute_crawling(tasks):
-    """
-    수립된 계획(tasks)을 병렬로 실행하여 데이터를 수집합니다.
-    """
     all_results = []
     
     with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -163,32 +153,26 @@ def execute_crawling(tasks):
             keyword = task.get("keyword")
             options = task.get("options", {})
             
-            # 디버깅: 전달되는 파라미터 출력
-            print(f"[DEBUG] Crawling Task:")
-            print(f"  - Target: {target}")
-            print(f"  - Keyword: {keyword}")
-            print(f"  - Options: {options}")
-            
-            # search_community(target_source, keyword, **kwargs)
-            # 기본적으로 1~2페이지만 긁도록 설정 (속도 위해)
+            print(f"[DEBUG] Crawling Task: {target} - {keyword}")
             future = executor.submit(search_community, target, keyword, **options)
             future_to_task[future] = task
+
+        # [수정] 모든 태스크가 '완전히' 끝날 때까지 명시적으로 대기 (wait)
+        # return_when=ALL_COMPLETED를 사용하여 하나라도 실행 중이면 넘어가지 않음
+        if future_to_task:
+            concurrent.futures.wait(future_to_task.keys(), return_when=concurrent.futures.ALL_COMPLETED)
             
-        for future in concurrent.futures.as_completed(future_to_task):
-            task = future_to_task[future]
+        # 모든 작업이 완료된 후 결과 수집
+        for future in future_to_task:
             try:
                 df = future.result()
-                print(f"[DEBUG] Crawling result for {task.get('target_source')}: {len(df)} rows")
                 if not df.empty:
-                    # 출처 표기를 위해 컬럼 추가
-                    df["Source"] = task.get("target_source")
-                    df["Keyword"] = task.get("keyword")
+                    df["Source"] = future_to_task[future].get("target_source")
+                    df["Keyword"] = future_to_task[future].get("keyword")
                     all_results.append(df)
-                else:
-                    print(f"[DEBUG] Empty DataFrame returned for {task.get('target_source')}")
+
             except Exception as e:
-                st.error(f"크롤링 중 오류 발생 ({task}): {e}")
-                print(f"[DEBUG] Exception during crawling: {e}")
+                print(f"[DEBUG] Error: {e}", flush=True)
 
     if all_results:
         # [수정] 여러 소스의 데이터를 고르게 섞기 (Interleaving)
@@ -205,28 +189,19 @@ def execute_crawling(tasks):
         return pd.DataFrame()
 
 def generate_report(user_input, df):
-    """
-    수집된 데이터를 바탕으로 최종 보고서를 스트리밍 방식으로 작성합니다.
-    (수정: 텍스트 스트리밍 + 히든 JSON 데이터 전송 방식 적용)
-    """
     model = get_gemini_model()
     
-    if df.empty:
-        return None
+    if df.empty: return None
         
     summary_text = ""
-    
-    # 컬럼명 처리 (대소문자 무관하게 동작하도록 안전장치)
     cols = {c.lower(): c for c in df.columns}
     title_col = cols.get('title', 'Title')
     content_col = cols.get('content', 'Content')
 
-    # enumerate를 사용하여 1번부터 인덱스 부여
+    # 인덱스 1부터 시작 (30개 제한)
     for i, (idx, row) in enumerate(df.head(30).iterrows()):
         title = row.get(title_col, "No Title")
-        # [수정] 본문 150자 제한 (이미 잘려있겠지만 안전장치 및 프롬프트 최적화)
         content = str(row.get(content_col, ""))[:150]
-        # ID를 1부터 시작하는 순번으로 매핑하여 프롬프트에 전달
         summary_text += f"[ID: {i + 1}] {title}: {content}\n"
         
     prompt = f"""
@@ -239,6 +214,11 @@ def generate_report(user_input, df):
     {summary_text}
     
     위 데이터를 바탕으로 상세한 보고서를 작성해주세요.
+
+    **🔥 [중요 지침] 🔥**
+    보고서의 문장이나 핵심적인 여론(긍정/부정 요소)을 언급할 때는, 해당 내용의 근거가 된 [수집된 데이터 요약]의 **게시물 ID를 반드시 괄호 안에 [ID] 형태로 명시**해 주세요.
+    * **예시:** "대부분의 유저가 인터페이스의 편의성을 높이 평가했습니다 [1, 5, 10]."
+    * **예시:** "가격 정책에 대한 불만이 다수 제기되었습니다 [2, 4, 11]."
     
     [보고서 포함 항목]
     1. **3줄 요약**: 전체적인 여론의 핵심 요약
@@ -248,18 +228,20 @@ def generate_report(user_input, df):
     5. **종합 평가**: 결론 및 제언
     
     [특별 지시사항 - 데이터 구조]
-    **중요:** 보고서 본문 작성이 모두 끝나면, 반드시 `__REF_DATA__` 라는 구분자를 출력하고, 그 바로 뒤에 분석에 가장 도움이 된 핵심 게시글의 ID 목록을 JSON 형식으로 출력해주세요. (마크다운 블록 없이 순수 텍스트로 출력)
+    **중요:** 보고서 본문 작성이 모두 끝나면, 반드시 `__REF_DATA__` 라는 구분자를 출력하고, 그 뒤에 **JSON 형식**으로 아래 정보들을 출력해주세요.
     
-    형식 예시:
-    (보고서 내용...)
-    ... 감사합니다.
+    1. **reference_ids**: 분석에 가장 영양가가 높았던 글의 ID (최대 3개, 숫자 리스트)
+    2. **sentiment_counts**: 전체(최대 30개) 글에 대한 감성 분석 통계. 각각의 글에 대해 ("Positive"|"Negative"|"Neutral")을 판단함. (긍정 부정 판단이 불가능할 경우에는 "Neutral"로 판단)
+    3. **topic_counts**: 전체(최대 30개) 글에서 주로 다뤄진 상위 키워드 3~5개와 그 빈도수
     
     __REF_DATA__
-    {{"reference_ids": [1, 5, 10]}}
+    {{
+        "reference_ids": [1, 5, 10],
+        "sentiment_counts": {{ "Positive": 12, "Negative": 8, "Neutral": 10 }},
+        "topic_counts": {{ "게임플레이": 15, "스토리": 8, "운영": 7 }}
+    }}
     """
-    # __REF_DATA__ 쪽은 실제로 채팅에 출력 안되도록 설정되어있음
-    # 스트리밍 활성화 (stream=True)
-    # JSON 모드는 스트리밍 뷰를 망치므로 해제하고 텍스트 모드로 받음
+    
     return model.generate_content(prompt, stream=True)
 
 # --------------------------------------------------------------------------
@@ -268,181 +250,283 @@ def generate_report(user_input, df):
 st.title("🕵️‍♂️ Community Insight Bot")
 st.caption("AI가 자동으로 커뮤니티를 선정하고 커뮤니티 기반 정보와 여론을 분석합니다.")
 
+# [누적 데이터 관리] 세션 상태 초기화
+if "sentiment_history" not in st.session_state:
+    st.session_state.sentiment_history = {"Positive": 0, "Neutral": 0, "Negative": 0}
+if "latest_topic_counts" not in st.session_state:
+    st.session_state.latest_topic_counts = {}
 if "messages" not in st.session_state:
     st.session_state.messages = []
-    welcome_msg = "안녕하세요! 궁금한 게임, 인물, 이슈 등을 물어봐주세요. 제가 적절한 커뮤니티를 찾아 관련 내용을 종합해드릴게요. 단순한 단어 보다는 현재 상황을 알려주시면 더 확실한 결과를 찾아드릴 수 있어요!"
+    welcome_msg = "안녕하세요! 궁금한 키워드를 물어봐주세요. 제가 커뮤니티 여론을 분석해 드릴게요."
     st.session_state.messages.append({"role": "assistant", "content": welcome_msg})
 
-for message in st.session_state.messages:
-    avatar_img = "assets/purple_avatar.png" if message["role"] == "assistant" else None
-    with st.chat_message(message["role"], avatar=avatar_img):
-        st.markdown(message["content"])
+# [CSS] 채팅창 스타일 조정 (채팅 입력창을 좌측 컬럼 너비에 맞게 고정)
+st.markdown(
+    """
+    <style>
+    /* 화면 너비가 넓을 때 (PC 등) 채팅 입력창을 좌측 60% 영역에 맞춤 */
+    @media (min-width: 768px) {
+        div[data-testid="stChatInput"] {
+            width: 58% !important; /* 좌측 컬럼 비율에 맞게 조정 (gap 고려) */
+            left: 21rem !important; /* 사이드바 너비(기본값)만큼 띄움 */
+            margin-right: auto;
+        }
+        .stMain div[data-testid="stChatInput"] {
+            width: 58% !important;
+            left: auto !important;
+            right: auto !important;
+        }
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
-# 사용자 입력 처리
+# --- 화면 레이아웃 분할 (좌: 채팅 / 우: 통계) ---
+chat_col, stat_col = st.columns([0.6, 0.4], gap="large")
+
+# 대시보드를 덮어쓰기 위해 st.empty()로 placeholder 생성
+dashboard_placeholder = stat_col.empty()
+
+# [우측] 통계 대시보드 렌더링 함수
+def render_stats_dashboard():
+    # placeholder.container()를 사용하여 매번 내용을 덮어씀 (중복 출력 방지)
+    with dashboard_placeholder.container():
+        st.markdown("### 📈 실시간 여론 대시보드")
+        
+        # 1. 누적 감성 분석 (원형 그래프)
+        total_sentiment = sum(st.session_state.sentiment_history.values())
+        if total_sentiment > 0:
+            st.markdown("#### 😊 누적 감성 비율")
+            
+            sentiment_df = pd.DataFrame([
+                {"Category": "😊 긍정", "Count": st.session_state.sentiment_history["Positive"], "Color": "#4CAF50"}, # 초록
+                {"Category": "😐 중립", "Count": st.session_state.sentiment_history["Neutral"], "Color": "#FFC107"},  # 노랑
+                {"Category": "😡 부정", "Count": st.session_state.sentiment_history["Negative"], "Color": "#F44336"}   # 빨강
+            ])
+            
+            # 도넛 차트 생성
+            base = alt.Chart(sentiment_df).encode(
+                theta=alt.Theta("Count", stack=True)
+            )
+            
+            pie = base.mark_arc(outerRadius=120, innerRadius=60).encode(
+                color=alt.Color("Category", 
+                                scale=alt.Scale(domain=["😊 긍정", "😐 중립", "😡 부정"], 
+                                              range=["#66BB6A", "#FFCA28", "#EF5350"]),
+                                legend=alt.Legend(title="감성 상태", titleFontSize=12, labelFontSize=12)),
+                order=alt.Order("Count", sort="descending"),
+                tooltip=["Category", "Count", alt.Tooltip("Count", format=".0f")]
+            )
+            
+            text = base.mark_text(radius=140).encode(
+                text="Count",
+                order=alt.Order("Count", sort="descending"),
+                color=alt.value("black"),
+                size=alt.value(16)
+            )
+            
+            st.altair_chart(pie + text, use_container_width=True)
+            
+            col1, col2, col3 = st.columns(3)
+            col1.metric("긍정", st.session_state.sentiment_history["Positive"])
+            col2.metric("중립", st.session_state.sentiment_history["Neutral"])
+            col3.metric("부정", st.session_state.sentiment_history["Negative"])
+            
+        else:
+            st.info("데이터가 수집되면 통계가 표시됩니다.")
+
+        st.markdown("---")
+
+        # 2. 키워드 빈도 (가로 막대 그래프)
+        if st.session_state.latest_topic_counts:
+            st.markdown("#### 🔑 최신 키워드 빈도 (새 키워드 검색 시 초기화됩니다)")
+            
+            topic_data = st.session_state.latest_topic_counts
+            topic_df = pd.DataFrame(list(topic_data.items()), columns=['Keyword', 'Count'])
+            topic_df = topic_df.sort_values(by='Count', ascending=False)
+            
+            bar_chart = alt.Chart(topic_df).mark_bar().encode(
+                x=alt.X('Count', title='빈도수', axis=alt.Axis(titleFontSize=14, labelFontSize=12)),
+                y=alt.Y('Keyword', sort='-x', title='키워드', 
+                        axis=alt.Axis(titleFontSize=14, labelFontSize=14, labelLimit=200)),
+                color=alt.value("#7E57C2"),
+                tooltip=['Keyword', 'Count']
+            ).properties(
+                height=300
+            )
+            
+            text_bar = bar_chart.mark_text(
+                align='left',
+                baseline='middle',
+                dx=3
+            ).encode(
+                text='Count'
+            )
+            
+            st.altair_chart(bar_chart + text_bar, use_container_width=True)
+            
+        else:
+            st.caption("최근 검색된 키워드 통계가 없습니다.")
+
+# 초기 렌더링
+render_stats_dashboard()
+
+# [좌측] 채팅 인터페이스 (스크롤 가능한 컨테이너 적용)
+with chat_col:
+    # [변경] 메시지 출력을 위한 고정 높이 컨테이너 생성
+    chat_container = st.container(height=950)
+    
+    with chat_container:
+        # 이전 대화 출력
+        for message in st.session_state.messages:
+            avatar_img = "assets/purple_avatar.png" if message["role"] == "assistant" else None
+            with st.chat_message(message["role"], avatar=avatar_img):
+                st.markdown(message["content"])
+
+# 사용자 입력 처리 (하단 고정)
 if prompt := st.chat_input("무엇을 분석해 드릴까요?"):
     st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
+    
+    # [변경] 새로운 메시지도 chat_container 내부에 출력
+    with chat_container:
+        with st.chat_message("user"):
+            st.markdown(prompt)
 
-    # AI 응답 생성 시작
-    with st.chat_message("assistant", avatar="assets/purple_avatar.png"):
-        message_placeholder = st.empty()
-        full_response = ""
-        
-        with st.status("🤔 사용자의 질문을 분석하고 있습니다...", expanded=True) as status:
+        with st.chat_message("assistant", avatar="assets/purple_avatar.png"):
+            message_placeholder = st.empty()
+            full_response = ""
             
-            # [Step 1] 검색 계획 수립
-            plan = get_search_plan(prompt)
-            mode = plan.get("mode", "chat")
-            
-            # 디버깅: Gemini가 생성한 계획 출력
-            print(f"[DEBUG] Gemini Plan Generated:")
-            print(f"  - Mode: {mode}")
-            print(f"  - Reply Message: {plan.get('reply_message', 'N/A')}")
-            print(f"  - Tasks: {plan.get('tasks', [])}")
-            
-            if mode == "search":
-                tasks = plan.get("tasks", [])
+            with st.status("🤔 사용자의 질문을 분석하고 있습니다...", expanded=True) as status:
                 
-                # 계획 내용 표시
-                task_summary = []
-                for t in tasks:
-                    target = t.get('target_source')
-                    keyword = t.get('keyword')
-                    task_summary.append(f"{target.upper()}: '{keyword}'")
+                # [Step 1] 검색 계획 수립
+                plan = get_search_plan(prompt)
+                mode = plan.get("mode", "chat")
                 
-                status.write(f"📋 **검색 계획 수립 완료**: {', '.join(task_summary)}")
-                status.update(label="데이터를 수집하고 있습니다...", state="running")
+                print(f"[DEBUG] Plan: {plan}")
                 
-                # [Step 2] 크롤링 실행
-                raw_df = execute_crawling(tasks)
-                
-                if not raw_df.empty:
-                    # [수정] 수집 단계에서 미리 본문 길이 150자로 제한 (성능 향상)
-                    if 'Content' in raw_df.columns:
-                        raw_df['Content'] = raw_df['Content'].astype(str).str.slice(0, 150)
-
-                    initial_count = len(raw_df)
-                    status.write(f"✅ 총 {initial_count}건의 데이터를 수집했습니다.")
-                    status.update(label="혐오 표현을 필터링하고 있습니다...", state="running")
+                if mode == "search":
+                    tasks = plan.get("tasks", [])
                     
-                    # [Step 3] 혐오 표현 필터링
-                    try:
-                        clean_df = filter_hate_speech(raw_df)
+                    task_summary = [f"{t.get('target_source').upper()}: '{t.get('keyword')}'" for t in tasks]
+                    status.write(f"📋 **검색 계획**: {', '.join(task_summary)}")
+                    status.update(label="데이터를 수집하고 있습니다...", state="running")
+                    
+                    # [Step 2] 크롤링 실행
+                    raw_df = execute_crawling(tasks)
+                    
+                    if not raw_df.empty:
+                        if 'Content' in raw_df.columns:
+                            raw_df['Content'] = raw_df['Content'].astype(str).str.slice(0, 150)
+
+                        initial_count = len(raw_df)
+                        status.write(f"✅ 총 {initial_count}건 수집 완료")
+                        status.update(label="데이터 필터링 중...", state="running")
                         
-                        # [수정] 최신 30건만 사용하도록 자르기
-                        target_df = clean_df.head(30)
-                        
-                        final_count = len(clean_df)
-                        filtered_count = initial_count - final_count
-                        
-                        # [수정] 필터링 결과 메시지 구체화
-                        msg = f"🧹 **필터링 완료**: {filtered_count}건의 부적절한 게시물을 제외했습니다. (남은 데이터: {final_count}건"
-                        if final_count > 30:
-                            msg += " 중 최신의 30건을 사용합니다.)"
-                        else:
-                            msg += ")"
-                        status.write(msg)
+                        # [Step 3] 필터링
+                        try:
+                            clean_df = filter_hate_speech(raw_df)
+                            target_df = clean_df.head(30)
                             
-                    except Exception as e:
-                        st.warning(f"필터링 중 오류 발생: {e}")
-                        clean_df = raw_df
-                        target_df = clean_df.head(30)
-                    
-                    status.update(label="최종 보고서를 작성하고 있습니다...", state="running")
-                    
-                    # [Step 4] 보고서 작성 (스트리밍 + 히든 JSON)
-                    try:
-                        response_stream = generate_report(prompt, target_df)
-                        
-                        full_buffer = ""
-                        json_part = None
-                        
-                        # 스트리밍 루프
-                        for chunk in response_stream:
-                            if chunk.text:
-                                full_buffer += chunk.text
+                            filtered_cnt = initial_count - len(clean_df)
+                            used_cnt = len(target_df)
+                            
+                            status.write(f"🧹 필터링: {filtered_cnt}건 제외. (분석 대상: 최신 {used_cnt}건)")
                                 
-                                # 구분자가 있는지 확인
-                                if "__REF_DATA__" in full_buffer:
-                                    # 구분자 이전까지만 화면에 출력 (JSON 데이터 숨김)
-                                    visible_text = full_buffer.split("__REF_DATA__")[0]
-                                    message_placeholder.markdown(visible_text + "▌")
-                                else:
-                                    # 구분자가 없으면 전체 출력
-                                    message_placeholder.markdown(full_buffer + "▌")
+                        except Exception as e:
+                            st.warning(f"필터링 오류: {e}")
+                            clean_df = raw_df
+                            target_df = clean_df.head(30)
                         
-                        # 스트리밍 완료 후 후처리
-                        parts = full_buffer.split("__REF_DATA__")
-                        report_content = parts[0].strip()
-                        full_response = report_content # 최종 저장용
+                        status.update(label="보고서 작성 및 통계 분석 중...", state="running")
                         
-                        # JSON 파싱 시도
-                        ref_ids = []
-                        if len(parts) > 1:
-                            try:
-                                json_str = parts[1].strip()
-                                # 혹시 모를 마크다운 코드블록 제거
-                                json_str = json_str.replace("```json", "").replace("```", "").strip()
-                                json_data = json.loads(json_str)
-                                ref_ids = json_data.get("reference_ids", [])
-                            except json.JSONDecodeError:
-                                print(f"[DEBUG] JSON Parsing failed: {parts[1]}")
-
-                        # [UI 구성 1] AI 추천 링크 섹션 추가
-                        if ref_ids:
-                            full_response += "\n\n---\n### 🔗 AI가 참고한 핵심 게시글\n"
+                        # [Step 4] 보고서 작성 (스트리밍)
+                        try:
+                            response_stream = generate_report(prompt, target_df)
                             
-                            # URL 및 Title 컬럼 찾기 (대소문자 무관)
-                            cols = {c.lower(): c for c in target_df.columns}
-                            url_col = cols.get('posturl') or cols.get('url') or cols.get('link')
-                            title_col = cols.get('title', 'Title')
+                            full_buffer = ""
+                            
+                            for chunk in response_stream:
+                                if chunk.text:
+                                    full_buffer += chunk.text
+                                    
+                                    if "__REF_DATA__" in full_buffer:
+                                        visible_text = full_buffer.split("__REF_DATA__")[0]
+                                        message_placeholder.markdown(visible_text + "▌")
+                                    else:
+                                        message_placeholder.markdown(full_buffer + "▌")
+                            
+                            parts = full_buffer.split("__REF_DATA__")
+                            report_content = parts[0].strip()
+                            full_response = report_content
+                            
+                            ref_ids = []
+                            if len(parts) > 1:
+                                try:
+                                    json_str = parts[1].strip().replace("```json", "").replace("```", "").strip()
+                                    json_data = json.loads(json_str)
+                                    
+                                    ref_ids = json_data.get("reference_ids", [])
+                                    sentiment_counts = json_data.get("sentiment_counts", {})
+                                    topic_counts = json_data.get("topic_counts", {})
+                                    
+                                    # [통계 업데이트]
+                                    if sentiment_counts:
+                                        st.session_state.sentiment_history["Positive"] += sentiment_counts.get("Positive", 0)
+                                        st.session_state.sentiment_history["Neutral"] += sentiment_counts.get("Neutral", 0)
+                                        st.session_state.sentiment_history["Negative"] += sentiment_counts.get("Negative", 0)
+                                        
+                                    if topic_counts:
+                                        st.session_state.latest_topic_counts = topic_counts
+                                        
+                                    # 우측 대시보드 리렌더링
+                                    render_stats_dashboard()
 
-                            if url_col:
-                                # ref_id는 1부터 시작하는 순번이므로, 인덱스는 ref_id - 1
-                                for ref_id in ref_ids:
-                                    target_idx = ref_id - 1
-                                    if 0 <= target_idx < len(target_df):
-                                        row = target_df.iloc[target_idx]
-                                        full_response += f"- [{row[title_col]}]({row[url_col]})\n"
-                            else:
-                                st.warning("URL 컬럼을 찾을 수 없어 링크를 표시할 수 없습니다.")
-                        
-                        # 최종 완성된 텍스트 출력 (커서 제거)
+                                except json.JSONDecodeError:
+                                    print(f"[DEBUG] JSON Parsing failed")
+
+                            # 추천 링크
+                            if ref_ids:
+                                full_response += "\n\n---\n### 🔗 핵심 게시글\n"
+                                cols = {c.lower(): c for c in target_df.columns}
+                                url_col = cols.get('posturl') or cols.get('url') or cols.get('link')
+                                title_col = cols.get('title', 'Title')
+
+                                if url_col:
+                                    for ref_id in ref_ids:
+                                        target_idx = ref_id - 1
+                                        if 0 <= target_idx < len(target_df):
+                                            row = target_df.iloc[target_idx]
+                                            full_response += f"- [{row[title_col]}]({row[url_col]})\n"
+                            
+                            message_placeholder.markdown(full_response)
+                            
+                            # 전체 목록
+                            if not target_df.empty:
+                                status.markdown("---")
+                                status.write(f"**📑 분석에 사용된 전체 게시글 ({len(target_df)}건)**")
+                                cols = {c.lower(): c for c in target_df.columns}
+                                url_col = cols.get('posturl') or cols.get('url')
+                                title_col = cols.get('title', 'Title')
+                                
+                                for i, (idx, row) in enumerate(target_df.iterrows()):
+                                    status.markdown(f"{i+1}. [{row[title_col]}]({row[url_col]})")
+
+                        except Exception as e:
+                            full_response += f"\n\n(오류 발생: {str(e)})"
+                            message_placeholder.markdown(full_response)
+
+                        status.update(label="분석 완료! (클릭하여 전체 목록 확인)", state="complete", expanded=False)
+                            
+                    else:
+                        full_response = "😥 검색 결과가 없습니다."
                         message_placeholder.markdown(full_response)
-                        
-                        # [UI 구성 2] 사용된 전체 게시글 목록 출력 (Status 내부)
-                        if not target_df.empty:
-                            st.markdown("---")
-                            st.subheader(f"📑 사용된 전체 게시글 ({len(target_df)}건)")
-                            
-                            cols = {c.lower(): c for c in target_df.columns}
-                            url_col = cols.get('posturl') or cols.get('url') or cols.get('link')
-                            title_col = cols.get('title', 'Title')
-                            
-                            for i, (idx, row) in enumerate(target_df.iterrows()):
-                                title_text = row.get(title_col, "No Title")
-                                url_text = row.get(url_col, "#")
-                                st.markdown(f"**{i + 1}.** [{title_text}]({url_text})")
-
-                    except Exception as e:
-                        full_response += f"\n\n(분석 중 오류 발생: {str(e)})"
-                        message_placeholder.markdown(full_response)
-                        print(f"[DEBUG] Report generation error: {e}")
-
-                    # 상태창 닫기 및 라벨 업데이트
-                    status.update(label="분석 완료! (클릭하여 전체 수집 목록 확인)", state="complete", expanded=False)
-                        
-                else:
-                    full_response = "😥 검색 결과가 없습니다. 다른 키워드로 질문해 보시겠어요?"
-                    message_placeholder.markdown(full_response)
-                    status.update(label="검색 실패", state="error", expanded=False)
-            
-            else:
-                # Chat / Clarify 모드
-                full_response = plan.get("reply_message", "죄송합니다. 다시 말씀해 주시겠어요?")
-                message_placeholder.markdown(full_response)
-                status.update(label="대화 모드", state="complete", expanded=False)
+                        status.update(label="검색 실패", state="error", expanded=False)
                 
-    # 세션 기록 저장
-    st.session_state.messages.append({"role": "assistant", "content": full_response})
+                else:
+                    # Chat 모드
+                    full_response = plan.get("reply_message", "죄송합니다. 다시 말씀해 주시겠어요?")
+                    message_placeholder.markdown(full_response)
+                    status.update(label="대화 모드", state="complete", expanded=False)
+                    
+        st.session_state.messages.append({"role": "assistant", "content": full_response})
