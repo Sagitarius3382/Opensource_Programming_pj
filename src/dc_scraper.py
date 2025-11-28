@@ -37,22 +37,32 @@ USER_AGENT_LIST = [
 
 def get_driver():
     """Selenium WebDriver 설정을 초기화하고 드라이버 객체를 반환합니다."""
+    from selenium.webdriver.chrome.service import Service
+    from webdriver_manager.chrome import ChromeDriverManager
+    
     options = webdriver.ChromeOptions()
-    options.add_argument('headless')  # 헤드리스 모드 (창 숨김)
+    options.add_argument('headless')
     options.add_argument('window-size=1920x1080')
     options.add_argument('disable-gpu')
     options.add_argument('log-level=3')
     options.add_argument('disable-infobars')
     options.add_argument('--disable-extensions')
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
     
-    # 봇 탐지 방지 설정
     user_agent = random.choice(USER_AGENT_LIST)
     options.add_argument(f'user-agent={user_agent}')
     
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option('useAutomationExtension', False)
+    
     try:
-        driver = webdriver.Chrome(options=options)
+        service = Service(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=options)
+        driver.set_page_load_timeout(30)
+        print("[DEBUG] DC WebDriver 초기화 성공")
         return driver
-    except WebDriverException as e:
+    except Exception as e:
         print(f"❌ WebDriver 초기화 실패: {e}")
         return None
 
