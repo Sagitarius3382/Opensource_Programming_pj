@@ -114,7 +114,13 @@ def search_arca(channel_id: str = 'breaking', search_keyword: str = "", start_pa
     
     driver = None
     try:
-        service = Service(ChromeDriverManager().install())
+        # [수정 전] 자동 설치 (이 부분을 지우거나 주석 처리)
+        # service = Service(ChromeDriverManager().install())
+        
+        # [수정 후] 고정 경로 지정
+        # 도커/리눅스 환경에서 설치된 드라이버 경로 (보통 /usr/bin/chromedriver)
+        service = Service(executable_path='/usr/bin/chromedriver')
+        
         driver = webdriver.Chrome(service=service, options=options)
         # eager 모드이므로 타임아웃을 20초로 단축
         driver.set_page_load_timeout(20)

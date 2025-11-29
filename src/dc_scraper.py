@@ -76,7 +76,13 @@ def get_driver():
     options.add_experimental_option('useAutomationExtension', False)
     
     try:
-        service = Service(ChromeDriverManager().install())
+        # [수정 전] 자동 설치 (이 부분을 지우거나 주석 처리)
+        # service = Service(ChromeDriverManager().install())
+        
+        # [수정 후] 고정 경로 지정
+        # 도커/리눅스 환경에서 설치된 드라이버 경로 (보통 /usr/bin/chromedriver)
+        service = Service(executable_path='/usr/bin/chromedriver')
+        
         driver = webdriver.Chrome(service=service, options=options)
         driver.set_page_load_timeout(30)
         print("[DEBUG] DC WebDriver 초기화 성공")
