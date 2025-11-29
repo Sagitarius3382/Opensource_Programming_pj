@@ -7,8 +7,8 @@ from .arca_scraper import search_arca
 def search_community(
     target_source: str, 
     keyword: str, 
-    start_page: int = '1', 
-    end_page: int = '1', 
+    start_page: int = 1, 
+    end_page: int = 1, 
     **kwargs: Dict[str, Any]
 ) -> pd.DataFrame:
     """
