@@ -232,9 +232,19 @@ def get_regular_post_data(gallery_id: str, gallery_type: str = "minor", search_k
                     print(f"   -> [DC 일반] 게시물 접속: {title_raw[:20]}... (ID: {post_id}, 갤러리: {gallery_id})")
                     driver.get(post_full_url)
                     
-                    WebDriverWait(driver, 10).until(
+                    # 1. 가장 중요한 본문이 뜰 때까지 확실히 기다림 (필수)
+                    WebDriverWait(driver, 5).until(
                         EC.presence_of_element_located((By.CSS_SELECTOR, 'div.write_div'))
                     )
+
+                    # 2. 댓글 영역 로딩 대기 (선택 사항 - 타임아웃 예외 처리 필수)
+                    try:
+                        WebDriverWait(driver, 1).until(
+                            EC.presence_of_element_located((By.CSS_SELECTOR, 'div.comment_wrap'))
+                        )
+                    except TimeoutException:
+                        # 댓글 영역을 못 찾아도(네트워크 느림 or 구조 변경 등) 본문은 수집해야 하므로 그냥 넘어감
+                        print("[DC 일반] 댓글 로딩 시간이 초과되었습니다.")
                     
                     post_soup = BeautifulSoup(driver.page_source, 'lxml')
                     
@@ -274,6 +284,9 @@ def get_regular_post_data(gallery_id: str, gallery_type: str = "minor", search_k
     df = pd.DataFrame(data_list)
     if not df.empty:
         df = df.drop_duplicates(subset=['GalleryID', 'PostID'], keep='first')
+        print(f"\n--- [DC 일반] 크롤링 완료 및 중복 제거 ---")
+        print(f"총 수집된 게시물 수 (원본): {len(data_list)}개")
+        print(f"중복 제거 후 최종 게시물 수: {len(df)}개")
         
     return df
 
@@ -349,9 +362,19 @@ def get_integrated_search_data(search_keyword: str, sort_type: str = "latest", s
                     print(f"   -> [DC 통합] 검색 게시물 접속: {title_raw[:20]}... (ID: {post_id}, 갤러리: {gallery_name})")
                     driver.get(post_url)
                     
+                    # 1. 가장 중요한 본문이 뜰 때까지 확실히 기다림 (필수)
                     WebDriverWait(driver, 10).until(
                         EC.presence_of_element_located((By.CSS_SELECTOR, 'div.write_div'))
                     )
+
+                    # 2. 댓글 영역 로딩 대기 (선택 사항 - 타임아웃 예외 처리 필수)
+                    try:
+                        WebDriverWait(driver, 1).until(
+                            EC.presence_of_element_located((By.CSS_SELECTOR, 'div.comment_wrap'))
+                        )
+                    except TimeoutException:
+                        # 댓글 영역을 못 찾아도(네트워크 느림 or 구조 변경 등) 본문은 수집해야 하므로 그냥 넘어감
+                        print("[DC 통합] 댓글 로딩 시간이 초과되었습니다.")
                     
                     post_soup = BeautifulSoup(driver.page_source, 'lxml')
                     
@@ -386,7 +409,10 @@ def get_integrated_search_data(search_keyword: str, sort_type: str = "latest", s
         
     df = pd.DataFrame(data_list)
     if not df.empty:
-        df = df.drop_duplicates(subset=['PostID', 'PostURL'], keep='first')
+        df = df.drop_duplicates(subset=['GalleryID', 'PostID'], keep='first')
+        print(f"\n--- [DC 통합] 크롤링 완료 및 중복 제거 ---")
+        print(f"총 수집된 게시물 수 (원본): {len(data_list)}개")
+        print(f"중복 제거 후 최종 게시물 수: {len(df)}개")
         
     return df
 

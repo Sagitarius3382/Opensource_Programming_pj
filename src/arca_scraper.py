@@ -118,7 +118,7 @@ def search_arca(channel_id: str = 'breaking', search_keyword: str = "", start_pa
         driver = webdriver.Chrome(service=service, options=options)
         # eager 모드이므로 타임아웃을 20초로 단축
         driver.set_page_load_timeout(20)
-        print("[DEBUG] Arca WebDriver 초기화 성공 (Optimized Mode)")
+        print("[DEBUG] Arca WebDriver 초기화 성공")
     except Exception as e:
         print(f"\n❌ WebDriver 초기화 실패: {e}")
         return pd.DataFrame(data_list)
@@ -213,9 +213,17 @@ def search_arca(channel_id: str = 'breaking', search_keyword: str = "", start_pa
                     print(f"    -> [ARCA] 게시물 본문 요청: {title_raw[:20]}... (ID: {post_id}, 채널: {gallery_id_for_output})")
                     driver.get(post_full_url) 
                     
-                    WebDriverWait(driver, 10).until(
+                    WebDriverWait(driver, 5).until(
                         EC.presence_of_element_located((By.CSS_SELECTOR, 'div.article-content'))
                     )
+
+                    # 댓글 영역이 로드될 때까지 대기 (div.comment-item이 나타날 때까지)
+                    try:
+                        WebDriverWait(driver, 1).until(
+                            EC.presence_of_element_located((By.CSS_SELECTOR, 'div#comment'))
+                        )
+                    except TimeoutException:
+                        print("[ARCA] 댓글 로딩 시간이 초과되었습니다.")
                     
                     article_soup = BeautifulSoup(driver.page_source, 'lxml')
 
@@ -267,7 +275,7 @@ def search_arca(channel_id: str = 'breaking', search_keyword: str = "", start_pa
     # PostID를 기준으로 중복 행 제거 
     if not df.empty:
         df = df.drop_duplicates(subset=['GalleryID', 'PostID'], keep='first')
-        print(f"\n--- 크롤링 완료 및 중복 제거 ---")
+        print(f"\n--- [ARCA] 크롤링 완료 및 중복 제거 ---")
         print(f"총 수집된 게시물 수 (원본): {len(data_list)}개")
         print(f"중복 제거 후 최종 게시물 수: {len(df)}개")
             
